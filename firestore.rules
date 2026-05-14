@@ -1,0 +1,109 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function getRole() {
+      return getUserData().role;
+    }
+
+    function getCompanyId() {
+      return getUserData().companyId;
+    }
+
+    function isMemberOf(companyId) {
+      return isSignedIn() && userExists() && getCompanyId() == companyId;
+    }
+
+    function isAdminOf(companyId) {
+      return isMemberOf(companyId) && getRole() == 'ADMIN';
+    }
+
+    // Validation Blueprints
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'name', 'role', 'companyId', 'status']) &&
+             data.uid == request.auth.uid &&
+             data.role in ['ADMIN', 'MANAGER', 'SALESPERSON', 'CUSTOMER'] &&
+             data.status in ['active', 'inactive'];
+    }
+
+    function isValidCompany(data) {
+      return data.keys().hasAll(['name', 'industries', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 &&
+             data.industries is list && data.industries.size() > 0 &&
+             data.industries[0] is string;
+    }
+
+    // --- Collections ---
+
+    // User Profiles
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || (userExists() && getCompanyId() == resource.data.companyId));
+      allow create: if isSignedIn() && userId == request.auth.uid && (
+        // Allow onboarding: first admin of a company
+        (
+          request.resource.data.role == 'ADMIN' &&
+          existsAfter(/databases/$(database)/documents/companies/$(request.resource.data.companyId))
+        ) ||
+        // Or if an existing admin of the same company creates a user
+        (userExists() && getRole() == 'ADMIN' && getCompanyId() == request.resource.data.companyId)
+      );
+      allow update: if isSignedIn() && (
+        // User updating own profile
+        (request.auth.uid == userId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'status'])) ||
+        // Admin updating company user
+        (userExists() && getRole() == 'ADMIN' && getCompanyId() == resource.data.companyId)
+      );
+    }
+
+    // Companies
+    match /companies/{companyId} {
+      allow read: if isMemberOf(companyId);
+      
+      // Allow creation if it's accompanied by an admin profile in the same batch (onboarding)
+      allow create: if isSignedIn() && isValidCompany(request.resource.data) &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
+      
+      allow update: if isAdminOf(companyId);
+
+      // Sub-collections nested under company (Tenant isolation)
+      
+      match /customers/{customerId} {
+        allow read: if isMemberOf(companyId);
+        allow create: if isMemberOf(companyId) && (getRole() in ['ADMIN', 'MANAGER', 'SALESPERSON']);
+        allow update: if isMemberOf(companyId) && (getRole() in ['ADMIN', 'MANAGER'] || (getRole() == 'SALESPERSON' && resource.data.salespersonId == request.auth.uid));
+        allow delete: if isAdminOf(companyId);
+      }
+
+      match /products/{productId} {
+        allow read: if isMemberOf(companyId);
+        allow write: if isMemberOf(companyId) && (getRole() in ['ADMIN', 'MANAGER']);
+      }
+
+      match /orders/{orderId} {
+        allow read: if isMemberOf(companyId);
+        allow create: if isMemberOf(companyId); // Everyone can create orders (Sales/Managers/Customers)
+        allow update: if isMemberOf(companyId) && (getRole() in ['ADMIN', 'MANAGER']);
+        allow delete: if isAdminOf(companyId);
+      }
+    }
+  }
+}

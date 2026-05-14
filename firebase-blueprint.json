@@ -1,0 +1,100 @@
+{
+  "entities": {
+    "company": {
+      "title": "Company",
+      "description": "Multi-tenant distributor entity",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "industries": { "type": "array", "items": { "type": "string" } },
+        "logo": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "industries"]
+    },
+    "user": {
+      "title": "User",
+      "description": "Platform user with RBAC",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["ADMIN", "MANAGER", "SALESPERSON", "CUSTOMER"] },
+        "name": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] }
+      },
+      "required": ["companyId", "email", "role"]
+    },
+    "customer": {
+      "title": "Customer",
+      "description": "B2B client of a distributor",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "firmName": { "type": "string" },
+        "contactName": { "type": "string" },
+        "mobile": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" },
+        "gstNumber": { "type": "string" },
+        "type": { "type": "string", "enum": ["retailer", "wholesaler", "dealer", "technician"] },
+        "creditLimit": { "type": "number" },
+        "outstandingBalance": { "type": "number" },
+        "salespersonId": { "type": "string" },
+        "managerId": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "blocked"] }
+      }
+    },
+    "product": {
+      "title": "Product",
+      "description": "Catalog item",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "sku": { "type": "string" },
+        "name": { "type": "string" },
+        "brandId": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "price": { "type": "number" },
+        "stock": { "type": "number" },
+        "images": { "type": "array" }
+      }
+    },
+    "order": {
+      "title": "Order",
+      "description": "Sales order",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "salespersonId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "packed", "dispatched", "delivered", "cancelled"] },
+        "totalAmount": { "type": "number" },
+        "items": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/companies/{companyId}": {
+      "schema": "company",
+      "description": "Stores company-level settings"
+    },
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "User profile and role"
+    },
+    "/companies/{companyId}/customers/{customerId}": {
+      "schema": "customer",
+      "description": "Distributor customers"
+    },
+    "/companies/{companyId}/products/{productId}": {
+      "schema": "product",
+      "description": "Distributor inventory"
+    },
+    "/companies/{companyId}/orders/{orderId}": {
+      "schema": "order",
+      "description": "Sales transactions"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "DistriSync ERP",
+  "description": "Enterprise-grade Multi-Tenant B2B ERP & Sales Force Automation for modern distributors.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

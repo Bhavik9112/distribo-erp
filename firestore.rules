@@ -12,6 +12,18 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
     function userExists() {
       return exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
@@ -36,19 +48,33 @@ service cloud.firestore {
       return isMemberOf(companyId) && getRole() == 'ADMIN';
     }
 
+    function isManagerOf(companyId) {
+      return isMemberOf(companyId) && getRole() == 'MANAGER';
+    }
+
+    function isSalesOf(companyId) {
+      return isMemberOf(companyId) && getRole() == 'SALESPERSON';
+    }
+
     // Validation Blueprints
     function isValidUser(data) {
-      return data.keys().hasAll(['uid', 'email', 'name', 'role', 'companyId', 'status']) &&
-             data.uid == request.auth.uid &&
+      return data.keys().hasAll(['companyId', 'email', 'role', 'name', 'status', 'createdAt']) &&
+             data.companyId is string &&
              data.role in ['ADMIN', 'MANAGER', 'SALESPERSON', 'CUSTOMER'] &&
              data.status in ['active', 'inactive'];
     }
 
     function isValidCompany(data) {
-      return data.keys().hasAll(['name', 'industries', 'createdAt']) &&
-             data.name is string && data.name.size() > 0 &&
+      return data.keys().hasAll(['name', 'industries', 'ownerId', 'createdAt']) &&
+             data.name is string && data.name.size() >= 2 && data.name.size() <= 100 &&
              data.industries is list && data.industries.size() > 0 &&
-             data.industries[0] is string;
+             data.ownerId == request.auth.uid;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['companyId', 'customerId', 'items', 'status', 'totalAmount', 'createdAt']) &&
+             data.items is list && data.items.size() > 0 &&
+             data.totalAmount is number && data.totalAmount >= 0;
     }
 
     // --- Collections ---
@@ -56,53 +82,83 @@ service cloud.firestore {
     // User Profiles
     match /users/{userId} {
       allow read: if isSignedIn() && (request.auth.uid == userId || (userExists() && getCompanyId() == resource.data.companyId));
-      allow create: if isSignedIn() && userId == request.auth.uid && (
-        // Allow onboarding: first admin of a company
-        (
-          request.resource.data.role == 'ADMIN' &&
-          existsAfter(/databases/$(database)/documents/companies/$(request.resource.data.companyId))
-        ) ||
-        // Or if an existing admin of the same company creates a user
-        (userExists() && getRole() == 'ADMIN' && getCompanyId() == request.resource.data.companyId)
+      allow create: if isSignedIn() && isValidId(userId) && userId == request.auth.uid && (
+        // Onboarding: Admin creating first profile
+        (incoming().role == 'ADMIN' && existsAfter(/databases/$(database)/documents/companies/$(incoming().companyId))) ||
+        // Admin of company creating another user
+        (userExists() && getRole() == 'ADMIN' && getCompanyId() == incoming().companyId)
       );
       allow update: if isSignedIn() && (
-        // User updating own profile
-        (request.auth.uid == userId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'status'])) ||
-        // Admin updating company user
-        (userExists() && getRole() == 'ADMIN' && getCompanyId() == resource.data.companyId)
+        // User updating own profile (limited fields)
+        (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasAll(['name', 'mobile', 'status'])) ||
+        // Admin of company
+        (userExists() && getRole() == 'ADMIN' && getCompanyId() == existing().companyId)
       );
     }
 
-    // Companies
+    // Companies & Sub-collections
     match /companies/{companyId} {
       allow read: if isMemberOf(companyId);
-      
-      // Allow creation if it's accompanied by an admin profile in the same batch (onboarding)
-      allow create: if isSignedIn() && isValidCompany(request.resource.data) &&
-        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId &&
-        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN';
-      
+      allow create: if isSignedIn() && isValidId(companyId) && isValidCompany(incoming()) &&
+                    getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId;
       allow update: if isAdminOf(companyId);
 
-      // Sub-collections nested under company (Tenant isolation)
-      
+      // Brands & Categories
+      match /brands/{brandId} {
+        allow read: if isMemberOf(companyId);
+        allow write: if isAdminOf(companyId) || isManagerOf(companyId);
+      }
+      match /categories/{categoryId} {
+        allow read: if isMemberOf(companyId);
+        allow write: if isAdminOf(companyId) || isManagerOf(companyId);
+      }
+
+      // Products
+      match /products/{productId} {
+        allow read: if isMemberOf(companyId);
+        allow write: if isAdminOf(companyId) || isManagerOf(companyId);
+      }
+
+      // Warehouse & Inventory
+      match /warehouses/{warehouseId} {
+        allow read: if isMemberOf(companyId);
+        allow write: if isAdminOf(companyId) || isManagerOf(companyId);
+      }
+      match /inventory/{invId} {
+        allow read: if isMemberOf(companyId);
+        allow write: if isAdminOf(companyId) || isManagerOf(companyId);
+      }
+
+      // Customers
       match /customers/{customerId} {
         allow read: if isMemberOf(companyId);
         allow create: if isMemberOf(companyId) && (getRole() in ['ADMIN', 'MANAGER', 'SALESPERSON']);
-        allow update: if isMemberOf(companyId) && (getRole() in ['ADMIN', 'MANAGER'] || (getRole() == 'SALESPERSON' && resource.data.salespersonId == request.auth.uid));
-        allow delete: if isAdminOf(companyId);
+        allow update: if isMemberOf(companyId) && (
+          getRole() in ['ADMIN', 'MANAGER'] || 
+          (getRole() == 'SALESPERSON' && existing().salespersonId == request.auth.uid)
+        );
       }
 
-      match /products/{productId} {
-        allow read: if isMemberOf(companyId);
-        allow write: if isMemberOf(companyId) && (getRole() in ['ADMIN', 'MANAGER']);
-      }
-
+      // Orders
       match /orders/{orderId} {
         allow read: if isMemberOf(companyId);
-        allow create: if isMemberOf(companyId); // Everyone can create orders (Sales/Managers/Customers)
-        allow update: if isMemberOf(companyId) && (getRole() in ['ADMIN', 'MANAGER']);
-        allow delete: if isAdminOf(companyId);
+        allow create: if isMemberOf(companyId) && isValidOrder(incoming());
+        allow update: if isMemberOf(companyId) && (
+          isAdminOf(companyId) || isManagerOf(companyId) ||
+          (isSalesOf(companyId) && existing().status == 'pending')
+        ) && (
+          // Status transitions only for managers/admins
+          (getRole() in ['ADMIN', 'MANAGER'] && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])) ||
+          // Minor edits for salespeople on pending orders
+          (getRole() == 'SALESPERSON' && incoming().diff(existing()).affectedKeys().hasOnly(['items', 'totalAmount', 'updatedAt']))
+        );
+        allow delete: if isAdminOf(companyId) && existing().status == 'cancelled';
+      }
+
+      // Visits
+      match /visits/{visitId} {
+        allow read: if isMemberOf(companyId);
+        allow create: if isSalesOf(companyId) || isManagerOf(companyId);
       }
     }
   }

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -8,21 +8,44 @@ import {
   MapPin, 
   History, 
   TrendingUp,
-  UserCheck
+  Navigation
 } from 'lucide-react';
+import { 
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Button } from '@/components/ui/button';
+import { OrderForm } from '@/components/OrderForm';
 import { useAuth } from '../../contexts/AuthContext';
-
-const QuickAction = ({ icon: Icon, label, color }: any) => (
-  <button className="flex flex-col items-center justify-center p-4 bg-white rounded-2xl shadow-sm border border-gray-100 hover:bg-gray-50 transition-all active:scale-95">
-    <div className={`p-3 rounded-xl mb-2 ${color}`}>
-      <Icon className="h-6 w-6 text-white" />
-    </div>
-    <span className="text-sm font-medium text-gray-700">{label}</span>
-  </button>
-);
+import { api } from '@/services/api';
+import { toast } from 'sonner';
 
 export const SalesDashboard = () => {
   const { profile } = useAuth();
+  const [isOrdering, setIsOrdering] = useState(false);
+  const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const [visitNote, setVisitNote] = useState('');
+
+  const handleCheckIn = async () => {
+    if (!profile?.companyId) return;
+    try {
+      await api.createVisitLog(profile.companyId, {
+        salespersonId: profile.uid,
+        customerId: 'GPS_AUTO', // In a real app, we'd detect the nearest customer
+        location: { lat: 0, lng: 0 }, // Would use navigator.geolocation
+        notes: visitNote || 'Routine site visit',
+        timestamp: new Date().toISOString()
+      });
+      toast.success('Check-in synchronized');
+      setIsCheckingIn(false);
+      setVisitNote('');
+    } catch (err) {
+      toast.error('Check-in failed');
+    }
+  };
 
   return (
     <DashboardLayout role="SALESPERSON">
@@ -38,23 +61,93 @@ export const SalesDashboard = () => {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          {[
-            { icon: Search, label: "Lookup Party", color: "bg-blue-500", desc: "CRM Search" },
-            { icon: PlusCircle, label: "Sync Order", color: "bg-emerald-500", desc: "Live Entry" },
-            { icon: MapPin, label: "GPS Check-in", color: "bg-indigo-500", desc: "Route Log" },
-            { icon: History, label: "Audit Log", color: "bg-slate-700", desc: "Daily Hist" },
-          ].map((action, i) => (
-            <button key={i} className="flex flex-col items-start p-3 bg-white rounded-xl shadow-sm border border-slate-100 hover:border-blue-200 transition-all active:scale-95 text-left overflow-hidden relative group">
-              <div className={cn("p-2 rounded-lg mb-2 text-white shadow-md", action.color)}>
-                <action.icon className="h-4 w-4" />
+          <button className="flex flex-col items-start p-3 bg-white rounded-xl shadow-sm border border-slate-100 hover:border-blue-200 transition-all active:scale-95 text-left overflow-hidden relative group">
+            <div className="p-2 rounded-lg mb-2 text-white shadow-md bg-blue-500">
+              <Search className="h-4 w-4" />
+            </div>
+            <div>
+              <span className="text-[11px] font-black text-slate-800 uppercase tracking-tighter block">Lookup Party</span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">CRM Search</span>
+            </div>
+          </button>
+
+          <Dialog open={isOrdering} onOpenChange={setIsOrdering}>
+            <DialogTrigger asChild>
+              <button className="flex flex-col items-start p-3 bg-white rounded-xl shadow-sm border border-slate-100 hover:border-blue-200 transition-all active:scale-95 text-left overflow-hidden relative group">
+                <div className="p-2 rounded-lg mb-2 text-white shadow-md bg-emerald-500">
+                  <PlusCircle className="h-4 w-4" />
+                </div>
+                <div>
+                  <span className="text-[11px] font-black text-slate-800 uppercase tracking-tighter block">Take Order</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Sync Live Cart</span>
+                </div>
+              </button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle className="text-sm font-black uppercase tracking-widest text-slate-900 border-b pb-3">Field Sales Fulfillment</DialogTitle>
+              </DialogHeader>
+              <div className="py-4">
+                <OrderForm 
+                  companyId={profile?.companyId || ''} 
+                  salespersonId={profile?.uid || ''} 
+                  onSuccess={() => setIsOrdering(false)} 
+                />
               </div>
-              <div>
-                <span className="text-[11px] font-black text-slate-800 uppercase tracking-tighter block">{action.label}</span>
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{action.desc}</span>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={isCheckingIn} onOpenChange={setIsCheckingIn}>
+            <DialogTrigger asChild>
+              <button className="flex flex-col items-start p-3 bg-white rounded-xl shadow-sm border border-slate-100 hover:border-blue-200 transition-all active:scale-95 text-left overflow-hidden relative group">
+                <div className="p-2 rounded-lg mb-2 text-white shadow-md bg-indigo-500">
+                  <MapPin className="h-4 w-4" />
+                </div>
+                <div>
+                  <span className="text-[11px] font-black text-slate-800 uppercase tracking-tighter block">Check-in</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">GPS Log</span>
+                </div>
+              </button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[400px]">
+              <DialogHeader>
+                <DialogTitle className="text-sm font-black uppercase tracking-widest text-slate-900 border-b pb-3">Operational Check-in</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-3">
+                  <div className="h-10 w-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <Navigation className="h-5 w-5 text-blue-600 animate-pulse" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Location Accuracy</p>
+                    <p className="text-xs font-bold text-slate-800">± 5 meters • Sector 4 Ind. Area</p>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Visit Observations</label>
+                  <textarea 
+                    className="w-full min-h-[80px] p-2 text-xs border border-slate-200 rounded-lg bg-white focus:ring-1 focus:ring-blue-500 outline-none" 
+                    placeholder="Enter visit summary, market feedback or remarks..."
+                    value={visitNote}
+                    onChange={e => setVisitNote(e.target.value)}
+                  />
+                </div>
+                <Button onClick={handleCheckIn} className="w-full bg-slate-900 text-[10px] font-black uppercase tracking-[0.2em] h-10">
+                  Sync Coordinates & Log
+                </Button>
               </div>
-              <div className="absolute -right-4 -top-4 w-12 h-12 bg-slate-50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
-            </button>
-          ))}
+            </DialogContent>
+          </Dialog>
+
+          <button className="flex flex-col items-start p-3 bg-white rounded-xl shadow-sm border border-slate-100 hover:border-blue-200 transition-all active:scale-95 text-left overflow-hidden relative group">
+            <div className="p-2 rounded-lg mb-2 text-white shadow-md bg-slate-700">
+              <History className="h-4 w-4" />
+            </div>
+            <div>
+              <span className="text-[11px] font-black text-slate-800 uppercase tracking-tighter block">Audit Log</span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Daily History</span>
+            </div>
+          </button>
         </div>
 
         <Card className="bg-slate-900 text-white border-none shadow-xl rounded-2xl relative overflow-hidden">

@@ -3,14 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import React, { useState, FormEvent } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { Toaster } from 'sonner';
-import { useState } from 'react';
 import { doc, setDoc, writeBatch } from 'firebase/firestore';
 import { db, OperationType, handleFirestoreError } from '@/lib/firebase';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { cn } from '@/lib/utils';
+import { api } from '@/services/api';
 import { 
   Card, 
   CardContent, 
@@ -46,6 +47,8 @@ import { SalesDashboard } from '@/pages/sales/SalesDashboard';
 import { CustomerPortal as CustomerDashboard } from '@/pages/customer/CustomerPortal';
 import { Products as AdminProducts } from '@/pages/admin/Products';
 import { Customers as AdminCustomers } from '@/pages/admin/Customers';
+import { Orders as AdminOrders } from '@/pages/admin/Orders';
+import { Users as AdminUsers } from '@/pages/admin/Users';
 
 const data = [
   { name: 'Jan', revenue: 4000 },
@@ -198,8 +201,17 @@ const AdminDashboard = () => (
 
 const Onboarding = () => {
   const { user, profile, refreshProfile } = useAuth();
-  const [companyName, setCompanyName] = useState('');
-  const [industries, setIndustries] = useState<string[]>([]);
+  const [step, setStep] = useState(1);
+  const [formData, setFormData] = useState({
+    companyName: '',
+    ownerName: '',
+    mobileNumber: '',
+    gstNumber: '',
+    address: '',
+    city: '',
+    state: '',
+    industries: [] as string[]
+  });
   const [inputValue, setInputValue] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -214,148 +226,147 @@ const Onboarding = () => {
 
   const addTag = (tag: string) => {
     const trimmed = tag.trim();
-    if (trimmed && !industries.includes(trimmed)) {
-      setIndustries([...industries, trimmed]);
+    if (trimmed && !formData.industries.includes(trimmed)) {
+      setFormData(prev => ({ ...prev, industries: [...prev.industries, trimmed] }));
     }
     setInputValue('');
   };
 
   const removeTag = (index: number) => {
-    setIndustries(industries.filter((_, i) => i !== index));
+    setFormData(prev => ({ ...prev, industries: prev.industries.filter((_, i) => i !== index) }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!user || industries.length === 0) return;
+    if (step < 2) {
+      setStep(2);
+      return;
+    }
+    if (!user || formData.industries.length === 0) return;
     setSubmitting(true);
     try {
-      const companyId = `comp_${Math.random().toString(36).substring(2, 9)}`;
-      const batch = writeBatch(db);
-
-      // Create company
-      const companyRef = doc(db, 'companies', companyId);
-      batch.set(companyRef, {
-        name: companyName,
-        industries: industries,
-        createdAt: new Date().toISOString(),
-      });
-
-      // Create user profile
-      const userRef = doc(db, 'users', user.uid);
-      batch.set(userRef, {
+      await api.createCompany({
+        name: formData.companyName,
+        industries: formData.industries,
+        gstNumber: formData.gstNumber,
+        mobileNumber: formData.mobileNumber,
+        address: formData.address,
+        city: formData.city,
+        state: formData.state,
+        ownerId: user.uid
+      }, {
         uid: user.uid,
-        email: user.email,
-        name: user.displayName || 'Distributor Admin',
-        role: 'ADMIN',
-        companyId,
-        status: 'active',
+        email: user.email!,
+        name: formData.ownerName || user.displayName || 'Owner',
+        mobile: formData.mobileNumber
       });
-
-      await batch.commit();
       await refreshProfile();
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'batch/onboarding');
     } finally {
       setSubmitting(false);
     }
   };
 
   const filteredSuggestions = suggestions.filter(s => 
-    s.toLowerCase().includes(inputValue.toLowerCase()) && !industries.includes(s)
+    s.toLowerCase().includes(inputValue.toLowerCase()) && !formData.industries.includes(s)
   );
 
   return (
     <div className="flex h-screen items-center justify-center bg-slate-50 p-4">
       <Card className="w-full max-w-md border-slate-200 shadow-xl rounded-2xl overflow-hidden bg-white">
         <div className="bg-slate-900 p-6 text-white text-center relative overflow-hidden">
-          <div className="relative z-10">
-            <h1 className="text-xl font-black tracking-tight uppercase">DistriSync Terminal</h1>
-            <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest mt-1">Onboarding & Workspace Setup</p>
+          <div className="relative z-10 text-left">
+            <div className="flex items-center justify-between">
+              <h1 className="text-xl font-black tracking-tight uppercase">DistriSync Terminal</h1>
+              <span className="text-[10px] font-bold bg-blue-500 px-2 py-0.5 rounded">STEP {step}/2</span>
+            </div>
+            <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest mt-1">Enterprise Distributor Provisioning</p>
           </div>
-          <div className="absolute right-0 top-0 w-32 h-32 bg-blue-500/10 blur-3xl -z-0" />
+          <div className="absolute right-0 top-0 w-32 h-32 bg-blue-500/20 blur-3xl -z-0" />
         </div>
         
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
-          <div className="space-y-4">
-            <div>
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Entity / Company Name</label>
-              <Input 
-                required
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                className="h-10 text-xs border-slate-200 focus:ring-blue-500 rounded-lg placeholder:text-slate-300"
-                placeholder="e.g. Skyline Enterprise Solutions"
-              />
-            </div>
-
-            <div>
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">
-                Primary Industries <span className="text-blue-500 font-black ml-1">(Multi-Select)</span>
-              </label>
-              
-              <div className="flex flex-wrap gap-1.5 p-2 border border-slate-200 rounded-xl bg-slate-50/50 min-h-[44px]">
-                {industries.map((tag, i) => (
-                  <Badge 
-                    key={i} 
-                    className="bg-slate-900 hover:bg-slate-800 text-[9px] font-black uppercase tracking-tighter px-2 py-0.5 rounded-md flex items-center gap-1 group transition-all"
-                  >
-                    {tag}
-                    <button 
-                      type="button"
-                      onClick={() => removeTag(i)}
-                      className="text-slate-500 hover:text-white transition-colors"
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  </Badge>
-                ))}
-                <input
-                  onFocus={() => setShowSuggestions(true)}
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (inputValue) addTag(inputValue);
-                    }
-                  }}
-                  className="flex-1 bg-transparent border-none outline-none text-xs text-slate-800 placeholder:text-slate-300 min-w-[120px]"
-                  placeholder={industries.length === 0 ? "Type industry and press Enter" : "Add more..."}
-                />
+          {step === 1 ? (
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Company Name</label>
+                <Input required value={formData.companyName} onChange={e => setFormData({...formData, companyName: e.target.value})} className="h-10 text-xs rounded-lg" placeholder="e.g. Skyline Enterprise" />
               </div>
-
-              {showSuggestions && inputValue && filteredSuggestions.length > 0 && (
-                <div className="mt-2 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto isolate z-50">
-                  {filteredSuggestions.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => {
-                        addTag(s);
-                        setShowSuggestions(false);
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-between group"
-                    >
-                      {s}
-                      <Plus className="h-3 w-3 opacity-0 group-hover:opacity-100 text-blue-500" />
-                    </button>
-                  ))}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Owner Name</label>
+                  <Input required value={formData.ownerName} onChange={e => setFormData({...formData, ownerName: e.target.value})} className="h-10 text-xs rounded-lg" placeholder="Jane Doe" />
                 </div>
-              )}
-              
-              {industries.length === 0 && (
-                <p className="text-[9px] text-rose-500 font-bold uppercase tracking-widest mt-2 px-1">At least one industry is required</p>
-              )}
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Mobile</label>
+                  <Input required value={formData.mobileNumber} onChange={e => setFormData({...formData, mobileNumber: e.target.value})} className="h-10 text-xs rounded-lg" placeholder="+1..." />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Address</label>
+                <Input required value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="h-10 text-xs rounded-lg" placeholder="Industrial Area..." />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">City</label>
+                  <Input required value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} className="h-10 text-xs rounded-lg" placeholder="New York" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">State</label>
+                  <Input required value={formData.state} onChange={e => setFormData({...formData, state: e.target.value})} className="h-10 text-xs rounded-lg" placeholder="NY" />
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">GST / Tax Number (Optional)</label>
+                <Input value={formData.gstNumber} onChange={e => setFormData({...formData, gstNumber: e.target.value})} className="h-10 text-xs rounded-lg" placeholder="GSTIN..." />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Primary Industries</label>
+                <div className="flex flex-wrap gap-1.5 p-2 border border-slate-200 rounded-xl bg-slate-50/50 min-h-[44px]">
+                  {formData.industries.map((tag, i) => (
+                    <Badge key={i} className="bg-slate-900 group transition-all text-[9px] font-black px-2 py-0.5 rounded-md">
+                      {tag}
+                      <button type="button" onClick={() => removeTag(i)} className="ml-1 text-slate-500 hover:text-white"><X className="h-2.5 w-2.5" /></button>
+                    </Badge>
+                  ))}
+                  <input
+                    onFocus={() => setShowSuggestions(true)}
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(inputValue); } }}
+                    className="flex-1 bg-transparent border-none outline-none text-xs text-slate-800 placeholder:text-slate-300 min-w-[120px]"
+                    placeholder="Add industry..."
+                  />
+                </div>
+                {showSuggestions && inputValue && filteredSuggestions.length > 0 && (
+                  <div className="mt-2 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                    {filteredSuggestions.map((s) => (
+                      <button key={s} type="button" onClick={() => { addTag(s); setShowSuggestions(false); }} className="w-full text-left px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center justify-between group">
+                        {s} <Plus className="h-3 w-3 opacity-0 group-hover:opacity-100 text-blue-500" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
-          <button 
-            disabled={submitting || industries.length === 0 || !companyName.trim()}
-            type="submit"
-            className="w-full py-3 bg-blue-600 text-white text-[11px] font-black uppercase tracking-[0.2em] rounded-xl shadow-lg shadow-blue-500/25 hover:bg-blue-700 active:scale-[0.98] transition-all disabled:opacity-50 disabled:shadow-none disabled:active:scale-100"
-          >
-            {submitting ? 'Initializing Workspace...' : 'Architect My ERP'}
-          </button>
+          <div className="flex gap-4">
+            {step === 2 && (
+              <Button variant="outline" type="button" onClick={() => setStep(1)} className="flex-1 h-12 text-[10px] font-black uppercase tracking-widest border-slate-200">
+                Back
+              </Button>
+            )}
+            <button 
+              disabled={submitting}
+              type="submit"
+              className="flex-3 py-3 px-6 bg-blue-600 text-white text-[11px] font-black uppercase tracking-[0.2em] rounded-xl shadow-lg shadow-blue-500/25 hover:bg-blue-700 active:scale-[0.98] transition-all disabled:opacity-50"
+            >
+              {submitting ? 'Initializing...' : step === 1 ? 'Configure Verticals' : 'Finish Setup'}
+            </button>
+          </div>
         </form>
       </Card>
     </div>
@@ -406,8 +417,11 @@ export default function App() {
             <ProtectedRoute role="ADMIN">
               <Routes>
                 <Route index element={<AdminDashboard />} />
+                <Route path="managers" element={<AdminUsers />} />
+                <Route path="sales" element={<AdminUsers />} />
                 <Route path="products" element={<AdminProducts />} />
                 <Route path="customers" element={<AdminCustomers />} />
+                <Route path="orders" element={<AdminOrders />} />
               </Routes>
             </ProtectedRoute>
           } />

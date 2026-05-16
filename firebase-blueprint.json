@@ -7,10 +7,16 @@
       "properties": {
         "name": { "type": "string" },
         "industries": { "type": "array", "items": { "type": "string" } },
+        "gstNumber": { "type": "string" },
+        "mobileNumber": { "type": "string" },
+        "address": { "type": "string" },
+        "city": { "type": "string" },
+        "state": { "type": "string" },
         "logo": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "ownerId": { "type": "string" }
       },
-      "required": ["name", "industries"]
+      "required": ["name", "industries", "ownerId"]
     },
     "user": {
       "title": "User",
@@ -21,9 +27,78 @@
         "email": { "type": "string" },
         "role": { "type": "string", "enum": ["ADMIN", "MANAGER", "SALESPERSON", "CUSTOMER"] },
         "name": { "type": "string" },
-        "status": { "type": "string", "enum": ["active", "inactive"] }
+        "mobile": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["companyId", "email", "role"]
+    },
+    "brand": {
+      "title": "Brand",
+      "description": "Product brands manufacturers",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "logo": { "type": "string" }
+      },
+      "required": ["companyId", "name"]
+    },
+    "category": {
+      "title": "Category",
+      "description": "Product categories",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "parentId": { "type": "string" }
+      },
+      "required": ["companyId", "name"]
+    },
+    "product": {
+      "title": "Product",
+      "description": "Catalog item with detailed attributes",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "sku": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "brandId": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "price": { "type": "number" },
+        "costPrice": { "type": "number" },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "attributes": { "type": "object" },
+        "status": { "type": "string", "enum": ["active", "archived"] }
+      },
+      "required": ["companyId", "sku", "name", "price"]
+    },
+    "warehouse": {
+      "title": "Warehouse",
+      "description": "Storage locations",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" },
+        "isPrimary": { "type": "boolean" }
+      },
+      "required": ["companyId", "name"]
+    },
+    "inventory": {
+      "title": "Inventory",
+      "description": "Stock levels per warehouse",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "productId": { "type": "string" },
+        "warehouseId": { "type": "string" },
+        "currentStock": { "type": "number" },
+        "reservedStock": { "type": "number" },
+        "lowStockThreshold": { "type": "number" }
+      },
+      "required": ["companyId", "productId", "warehouseId"]
     },
     "customer": {
       "title": "Customer",
@@ -36,65 +111,99 @@
         "mobile": { "type": "string" },
         "email": { "type": "string" },
         "address": { "type": "string" },
+        "city": { "type": "string" },
+        "state": { "type": "string" },
         "gstNumber": { "type": "string" },
-        "type": { "type": "string", "enum": ["retailer", "wholesaler", "dealer", "technician"] },
+        "hasGst": { "type": "boolean" },
         "creditLimit": { "type": "number" },
         "outstandingBalance": { "type": "number" },
         "salespersonId": { "type": "string" },
         "managerId": { "type": "string" },
-        "status": { "type": "string", "enum": ["active", "blocked"] }
-      }
-    },
-    "product": {
-      "title": "Product",
-      "description": "Catalog item",
-      "type": "object",
-      "properties": {
-        "companyId": { "type": "string" },
-        "sku": { "type": "string" },
-        "name": { "type": "string" },
-        "brandId": { "type": "string" },
-        "categoryId": { "type": "string" },
-        "price": { "type": "number" },
-        "stock": { "type": "number" },
-        "images": { "type": "array" }
-      }
+        "status": { "type": "string", "enum": ["active", "blocked", "pending"] },
+        "tags": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["companyId", "firmName", "mobile"]
     },
     "order": {
       "title": "Order",
-      "description": "Sales order",
+      "description": "Sales order lifecycle",
       "type": "object",
       "properties": {
         "companyId": { "type": "string" },
         "customerId": { "type": "string" },
         "salespersonId": { "type": "string" },
-        "status": { "type": "string", "enum": ["pending", "approved", "packed", "dispatched", "delivered", "cancelled"] },
+        "status": { "type": "string", "enum": ["pending", "approved", "packed", "dispatched", "delivered", "cancelled", "returned"] },
         "totalAmount": { "type": "number" },
-        "items": { "type": "array" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "items": { "type": "array", "items": { 
+          "type": "object",
+          "properties": {
+            "productId": { "type": "string" },
+            "quantity": { "type": "number" },
+            "unitPrice": { "type": "number" },
+            "total": { "type": "number" }
+          }
+        } },
+        "source": { "type": "string", "enum": ["customer", "salesperson", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "customerId", "items"]
+    },
+    "visitLog": {
+      "title": "Visit Log",
+      "description": "Salesperson customer visits",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "salespersonId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "location": { "type": "object" },
+        "notes": { "type": "string" },
+        "purpose": { "type": "string" }
       }
     }
   },
   "firestore": {
     "/companies/{companyId}": {
       "schema": "company",
-      "description": "Stores company-level settings"
+      "description": "Tenant core data"
     },
     "/users/{userId}": {
       "schema": "user",
-      "description": "User profile and role"
+      "description": "Global user profiles"
     },
-    "/companies/{companyId}/customers/{customerId}": {
-      "schema": "customer",
-      "description": "Distributor customers"
+    "/companies/{companyId}/brands/{brandId}": {
+      "schema": "brand",
+      "description": "Product brands"
+    },
+    "/companies/{companyId}/categories/{categoryId}": {
+      "schema": "category",
+      "description": "Product categories"
     },
     "/companies/{companyId}/products/{productId}": {
       "schema": "product",
-      "description": "Distributor inventory"
+      "description": "Product catalog"
+    },
+    "/companies/{companyId}/warehouses/{warehouseId}": {
+      "schema": "warehouse",
+      "description": "Warehouses"
+    },
+    "/companies/{companyId}/inventory/{inventoryId}": {
+      "schema": "inventory",
+      "description": "Stock levels"
+    },
+    "/companies/{companyId}/customers/{customerId}": {
+      "schema": "customer",
+      "description": "Client database"
     },
     "/companies/{companyId}/orders/{orderId}": {
       "schema": "order",
-      "description": "Sales transactions"
+      "description": "Sales orders"
+    },
+    "/companies/{companyId}/visits/{visitId}": {
+      "schema": "visitLog",
+      "description": "Field track"
     }
   }
 }
